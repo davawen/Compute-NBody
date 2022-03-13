@@ -13,6 +13,26 @@ struct Star
 };
 typedef struct Star Star;
 
+enum NodeState 
+{
+	NODE_STATE_EMPTY,
+	NODE_STATE_LEAF,
+	NODE_STATE_BRANCH
+};
+
+struct Node
+{
+	float3 minBound;
+	float3 maxBound;
+
+	float3 centerOfMass;
+	float totalMass;
+
+	uchar type; // NodeState
+	size_t child;
+};
+typedef struct Node Node;
+
 float4 matrixByVector(const float4 m[4], const float4 v)
 {
 	return (float4)(
@@ -104,10 +124,66 @@ __kernel void update_velocity(__global Star *stars, const float deltatime)
 
 		float lenSqr = ( dir.x*dir.x + dir.y*dir.y + dir.z*dir.z );
 
-		if(lenSqr <= pown(self->radius+other->radius, 2)) continue; // Avoid division by 0
+		if(lenSqr <= pown(self->radius+other->radius, 2))
+			continue;
 
-		self->velocity += normalize(dir) * (G * other->mass / lenSqr) * deltatime;
+		self->velocity += fast_normalize(dir) * (G * other->mass / lenSqr) * deltatime;
 	}
+}
+
+__kernel void update_velocity_barnes(__global Star *stars, __global const Node *tree, const float deltatime)
+{
+	const uint id = get_global_id(0);
+	const float G = 1.f;
+	
+	__global Star *star = &stars[id];
+	
+	__global const Node *stack[256];
+	int sp = 0;
+	
+	stack[sp] = &tree[0];
+	
+	size_t num = 1; // first iteration is root, then it's each contiguous children
+	
+	float3 force = (float3)(0.f);
+	
+	while(sp > -1)
+	{
+		__global const Node *baseNode = stack[sp];
+		sp--;
+		
+		for(size_t i = 0; i < num; i++)	
+		{ 
+			__global const Node *node = baseNode + i;
+
+			if(node->type == NODE_STATE_EMPTY) continue;
+			
+			float s = node->maxBound.x - node->minBound.x;
+			
+			float3 dir = node->centerOfMass - star->position;
+			
+			// if(any(isnan(dir))) continue;
+			
+			float distanceSqr = ( dir.x*dir.x + dir.y*dir.y + dir.z*dir.z );
+			
+			if(distanceSqr <= star->radius*star->radius) continue;
+			
+			float d = sqrt(distanceSqr);
+			
+			if(node->type == NODE_STATE_LEAF || sp == 255 || s/d < 2.5f)
+			{
+				force += (dir / d) * (G * node->totalMass / distanceSqr);
+			}
+			else
+			{
+				sp++;
+				stack[sp] = &tree[node->child];
+				num = 8;
+			}
+		}
+	}
+
+	star->velocity += force * deltatime;
 }
 
 
@@ -139,7 +215,8 @@ __kernel void render(__global const Star *stars, __global uchar4 *output, const 
 	float colorFalloff = pow(1.001f, w);
 
 	// Window space
-	draw_point((int2)(width * (pos.x+1.f)/2.f, height * (pos.y+1.f)/2.f), convert_uchar4((float4)(0xFF, 0xFF, 0xFF, 0xFF) / colorFalloff), output, width, height);
+	//draw_point((int2)(width * (pos.x+1.f)/2.f, height * (pos.y+1.f)/2.f), convert_uchar4((float4)(0xFF, 0xFF, 0xFF, 0xFF) / colorFalloff), output, width, height);
+	draw_circle((int2)(width * (pos.x+1.f)/2.f, height * (pos.y+1.f)/2.f), star->radius / w, convert_uchar4((float4)(0xFF, 0xFF, 0xFF, 0xFF) / colorFalloff), output, width, height);
 }
 
 //Clear every pixel in the texture
@@ -148,6 +225,6 @@ __kernel void update_texture(__global uchar4 *output, const int width, const int
 	const uint id = get_global_id(0);
 
 	// int2 pos = (int2)(id % width, id / width);
-
-	output[id] = (uchar4)(0, 0, 0, 0xFF);
+	
+	output[id] = (uchar4)(0x0, 0x0, 0x0, 0xFF);
 }

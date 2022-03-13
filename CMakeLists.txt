@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.12...3.21)
 
 # Flags / Options
 if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Debug)
+	set(CMAKE_BUILD_TYPE Debug)
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -10,7 +10,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_CXX_FLAGS_DEBUG "-g")
+if(NOT PROFILE)
+	set(CMAKE_CXX_FLAGS_DEBUG "-g")
+else()
+	set(CMAKE_CXX_FLAGS_DEBUG "-pg")
+endif()
+
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG_ON")
@@ -49,7 +54,7 @@ target_link_libraries(${PROJECT_NAME} ${OpenCL_LIBRARIES})
 
 # Kernel file
 # Custom targets depends on non exsisting file
-add_custom_target(copy_kernel ALL
+add_custom_target(opencl_kernel ALL
 	DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/__kernel_fake
 )
 
@@ -58,8 +63,8 @@ add_custom_command(
 	OUTPUT
 		${CMAKE_CURRENT_BINARY_DIR}/__kernel_fake
 		${CMAKE_CURRENT_BINARY_DIR}/kernel.cl
-	COMMAND ${CMAKE_COMMAND}
-		-E copy
+	COMMAND
+		ln -sf
 		${CMAKE_SOURCE_DIR}/src/kernel.cl
 		${CMAKE_CURRENT_BINARY_DIR}/kernel.cl
 )
